@@ -8,6 +8,10 @@ build:
 test:
 	go test -v ./...
 
+.PHONY: test-integration
+test-integration:
+	go test -v -tags integration -count=1 -timeout 5m ./...
+
 .PHONY: lint
 lint:
 	golangci-lint run

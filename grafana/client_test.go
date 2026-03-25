@@ -1,7 +1,6 @@
 package grafana_test
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -40,7 +39,7 @@ func TestClient_BearerTokenAuth(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	_, _ = client.SearchDashboards(context.Background(), "")
+	_, _ = client.SearchDashboards(t.Context(), "")
 
 	expected := "Bearer my-secret-token"
 	if gotAuth != expected {
@@ -71,7 +70,7 @@ func TestClient_BasicAuth(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	_, _ = client.SearchDashboards(context.Background(), "")
+	_, _ = client.SearchDashboards(t.Context(), "")
 
 	if !gotOK {
 		t.Fatal("expected basic auth to be set")
@@ -110,7 +109,7 @@ func TestClient_URLConstruction(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	_, _ = client.GetDashboard(context.Background(), "abc123")
+	_, _ = client.GetDashboard(t.Context(), "abc123")
 
 	expected := "/grafana/api/dashboards/uid/abc123"
 	if gotPath != expected {

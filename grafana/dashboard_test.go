@@ -1,7 +1,6 @@
 package grafana_test
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -38,7 +37,7 @@ func TestSearchDashboards(t *testing.T) {
 	}
 
 	results, err := client.SearchDashboards(
-		context.Background(), "cpu",
+		t.Context(), "cpu",
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -70,7 +69,7 @@ func TestGetDashboard(t *testing.T) {
 	}
 
 	dashboard, err := client.GetDashboard(
-		context.Background(), "test-uid",
+		t.Context(), "test-uid",
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -138,7 +137,7 @@ func TestSearchDashboards_APIError(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	_, err = client.SearchDashboards(context.Background(), "")
+	_, err = client.SearchDashboards(t.Context(), "")
 	if err == nil {
 		t.Fatal("expected error for unauthorized request")
 	}
