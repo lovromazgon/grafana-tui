@@ -23,6 +23,12 @@ Or download the binary manually from the [latest release](https://github.com/lov
 > That's because grafana-tui is currently not a signed binary, you have to do some
 > [extra steps](https://support.apple.com/en-us/102445#openanyway) to make it run.
 
+Once you have downloaded `grafana-tui`, you can try it out using this runnable example:
+
+```sh
+grafana-tui --url https://play.grafana.org
+```
+
 ## Usage
 
 ```sh
