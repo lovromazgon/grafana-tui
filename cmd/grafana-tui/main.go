@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -13,7 +14,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var version = "(devel)"
+var (
+	version = "(devel)"
+
+	errURLRequired = errors.New("URL is required: set --url or GRAFANA_URL")
+)
 
 func main() {
 	var flags flags
@@ -80,7 +85,7 @@ func run(f flags) error {
 
 	f.url = resolveEnv(f.url, "GRAFANA_URL")
 	if f.url == "" {
-		return fmt.Errorf("URL is required: set --url or GRAFANA_URL")
+		return errURLRequired
 	}
 
 	clientOpts := resolveAuth(f)
