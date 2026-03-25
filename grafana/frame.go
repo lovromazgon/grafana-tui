@@ -9,11 +9,18 @@ import (
 	"strings"
 )
 
+const (
+	fieldTypeNumber = "number"
+	fieldTypeTime   = "time"
+)
+
 // Errors returned by DataFrame parsing methods.
 var (
 	ErrNoTimeField        = errors.New("no time field found in data frame")
+	ErrNoStringField      = errors.New("no string field found for categories")
 	ErrUnexpectedTimeType = errors.New("unexpected time value type")
 	ErrUnexpectedNumType  = errors.New("unexpected number value type")
+	ErrFieldOutOfRange    = errors.New("field index out of range")
 )
 
 // TimeSeries extracts time series data from a DataFrame.
@@ -34,7 +41,7 @@ func (f *DataFrame) TimeSeries() (
 	series := make(map[string][]float64)
 
 	for fieldIdx, field := range f.Schema.Fields {
-		if fieldIdx == timeIdx || field.Type != "number" {
+		if fieldIdx == timeIdx || field.Type != fieldTypeNumber {
 			continue
 		}
 
@@ -58,7 +65,7 @@ func (f *DataFrame) NumericValues() (map[string]float64, error) {
 	result := make(map[string]float64)
 
 	for fieldIdx, field := range f.Schema.Fields {
-		if field.Type != "number" {
+		if field.Type != fieldTypeNumber {
 			continue
 		}
 
@@ -76,6 +83,60 @@ func (f *DataFrame) NumericValues() (map[string]float64, error) {
 	}
 
 	return result, nil
+}
+
+// CategorizedValues extracts data where one string field provides
+// category labels and the remaining numeric fields provide values per
+// category. Returns (categories, fieldName→values) or an error if the
+// frame has no string field.
+func (f *DataFrame) CategorizedValues() (
+	[]string, map[string][]float64, error,
+) {
+	// Find the first string field for category labels.
+	catIdx := -1
+
+	for i, field := range f.Schema.Fields {
+		if field.Type == "string" {
+			catIdx = i
+			break
+		}
+	}
+
+	if catIdx < 0 {
+		return nil, nil, ErrNoStringField
+	}
+
+	categories, err := parseStringValues(f.Data.Values[catIdx])
+	if err != nil {
+		return nil, nil, err
+	}
+
+	series := make(map[string][]float64)
+
+	for i, field := range f.Schema.Fields {
+		if i == catIdx || field.Type != fieldTypeNumber {
+			continue
+		}
+
+		values, parseErr := parseNumberValues(f.Data.Values[i])
+		if parseErr != nil {
+			return nil, nil, parseErr
+		}
+
+		series[field.Name] = values
+	}
+
+	return categories, series, nil
+}
+
+// NumericColumn returns all float64 values for the field at the given
+// index.
+func (f *DataFrame) NumericColumn(fieldIdx int) ([]float64, error) {
+	if fieldIdx < 0 || fieldIdx >= len(f.Data.Values) {
+		return nil, ErrFieldOutOfRange
+	}
+
+	return parseNumberValues(f.Data.Values[fieldIdx])
 }
 
 // TableData extracts all fields as string columns, returning headers
@@ -103,7 +164,7 @@ func (f *DataFrame) TableData() ([]string, [][]string, error) {
 // findTimeFieldIndex returns the index of the first time-type field.
 func (f *DataFrame) findTimeFieldIndex() (int, error) {
 	for fieldIdx, field := range f.Schema.Fields {
-		if field.Type == "time" {
+		if field.Type == fieldTypeTime {
 			return fieldIdx, nil
 		}
 	}

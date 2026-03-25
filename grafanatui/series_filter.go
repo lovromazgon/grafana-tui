@@ -44,20 +44,16 @@ func newSeriesFilterView(
 }
 
 // collectSeriesNames gathers all unique series names from a query
-// result.
+// result. It checks both time series frames and categorized frames
+// (where a string field provides category labels).
 func collectSeriesNames(result *grafana.QueryResult) []string {
 	seen := make(map[string]bool)
 
 	for _, rd := range result.Results {
-		for _, frame := range rd.Frames {
-			_, series, err := frame.TimeSeries()
-			if err != nil {
-				continue
-			}
-
-			for name := range series {
-				seen[name] = true
-			}
+		for i := range rd.Frames {
+			frame := &rd.Frames[i]
+			collectTimeSeriesNames(frame, seen)
+			collectCategoryNames(frame, seen)
 		}
 	}
 
@@ -69,6 +65,32 @@ func collectSeriesNames(result *grafana.QueryResult) []string {
 	sort.Strings(names)
 
 	return names
+}
+
+func collectTimeSeriesNames(
+	frame *grafana.DataFrame, seen map[string]bool,
+) {
+	_, series, err := frame.TimeSeries()
+	if err != nil {
+		return
+	}
+
+	for name := range series {
+		seen[name] = true
+	}
+}
+
+func collectCategoryNames(
+	frame *grafana.DataFrame, seen map[string]bool,
+) {
+	categories, _, err := frame.CategorizedValues()
+	if err != nil {
+		return
+	}
+
+	for _, name := range categories {
+		seen[name] = true
+	}
 }
 
 func (s *seriesFilterView) Init() tea.Cmd { return nil }

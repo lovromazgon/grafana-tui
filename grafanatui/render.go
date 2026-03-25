@@ -31,7 +31,7 @@ var rendererFactories = map[string]func() PanelRenderer{ //nolint:gochecknogloba
 	"histogram":      newTimeSeriesRenderer,
 	"text":           newTextRenderer,
 	"logs":           newTextRenderer,
-	"piechart":       newStatRenderer,
+	"piechart":       newPiechartRenderer,
 	"alertlist":      newTextRenderer,
 	"dashlist":       newTextRenderer,
 	"state-timeline": newTimeSeriesRenderer,

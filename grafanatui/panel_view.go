@@ -33,6 +33,7 @@ type panelView struct {
 	hiddenSeries    map[string]bool
 	variableValues  map[string]string
 	variableOptions map[string][]string
+	initialPanelID  int // if >0, jump to this panel after loading
 }
 
 // newPanelView creates a panel view that will load the given
@@ -53,6 +54,7 @@ func newPanelView(client *grafana.Client, uid string) *panelView {
 		hiddenSeries:    nil,
 		variableValues:  nil,
 		variableOptions: nil,
+		initialPanelID:  0,
 	}
 }
 
@@ -127,6 +129,18 @@ func (p *panelView) handleDashboardLoaded(msg dashboardLoadedMsg) (view, tea.Cmd
 		return p, nil
 	}
 
+	// Jump to the requested panel if an initial panel ID was set.
+	if p.initialPanelID > 0 {
+		for i, panel := range p.panels {
+			if panel.ID == p.initialPanelID {
+				p.index = i
+				break
+			}
+		}
+
+		p.initialPanelID = 0
+	}
+
 	// Resolve template variable options before fetching panel data.
 	return p, p.resolveVariables()
 }
@@ -170,8 +184,13 @@ func (p *panelView) handlePopAndFilter(msg popAndFilterMsg) (view, tea.Cmd) {
 }
 
 // handleKeyMsgGuarded ignores key events while variables are being
-// resolved or the dashboard is still loading.
+// resolved or the dashboard is still loading. Escape is always
+// allowed so the user can go back.
 func (p *panelView) handleKeyMsgGuarded(msg tea.KeyMsg) (view, tea.Cmd) {
+	if msg.String() == keyEsc {
+		return p, func() tea.Msg { return popViewMsg{} }
+	}
+
 	if p.dashboard == nil || p.variableValues == nil {
 		return p, nil
 	}
@@ -256,7 +275,7 @@ func (p *panelView) openTimePicker() (view, tea.Cmd) {
 
 // openVariablePicker pushes the variable picker view.
 func (p *panelView) openVariablePicker() (view, tea.Cmd) {
-	if p.dashboard == nil || len(p.dashboard.Templating.List) == 0 {
+	if p.dashboard == nil {
 		return p, nil
 	}
 
@@ -309,6 +328,7 @@ func (p *panelView) fetchPanelData() tea.Cmd {
 
 	client := p.client
 	panel := p.panels[p.index]
+	allPanels := p.panels
 	timeRange := p.timeRange
 	variables := p.dashboard.Templating.List
 	variableOverrides := p.variableValues
@@ -323,7 +343,7 @@ func (p *panelView) fetchPanelData() tea.Cmd {
 	return func() tea.Msg {
 		result, err := client.QueryPanel(
 			contextBackground(), panel, timeRange, width,
-			variables, variableOverrides,
+			variables, variableOverrides, allPanels,
 		)
 		if err != nil {
 			return panelErrorMsg{err: err}
@@ -368,8 +388,14 @@ func (p *panelView) renderTitleBar(width int) string {
 			Dark:  "#EEEEEE",
 		})
 
+	panelURL := fmt.Sprintf(
+		"%s/d/%s?viewPanel=%d",
+		p.client.BaseURL(), p.uid, panel.ID,
+	)
+
 	title := fmt.Sprintf(
-		" %s  (%d/%d)", panel.Title, p.index+1, len(p.panels),
+		" %s  (%d/%d)  %s",
+		panel.Title, p.index+1, len(p.panels), panelURL,
 	)
 
 	return titleStyle.Render(

@@ -28,15 +28,22 @@ type Dashboard struct {
 
 // Panel represents a single panel within a dashboard.
 type Panel struct {
-	ID          int             `json:"id"`
-	Type        string          `json:"type"`
-	Title       string          `json:"title"`
-	Targets     []Target        `json:"targets"`
-	Datasource  *DatasourceRef  `json:"datasource,omitempty"`
-	GridPos     GridPos         `json:"gridPos"`
-	FieldConfig json.RawMessage `json:"fieldConfig,omitempty"`
-	Options     json.RawMessage `json:"options,omitempty"`
-	Panels      []Panel         `json:"panels,omitempty"`
+	ID              int              `json:"id"`
+	Type            string           `json:"type"`
+	Title           string           `json:"title"`
+	Targets         []Target         `json:"targets"`
+	Datasource      *DatasourceRef   `json:"datasource,omitempty"`
+	GridPos         GridPos          `json:"gridPos"`
+	FieldConfig     json.RawMessage  `json:"fieldConfig,omitempty"`
+	Options         json.RawMessage  `json:"options,omitempty"`
+	Panels          []Panel          `json:"panels,omitempty"`
+	Transformations []Transformation `json:"transformations,omitempty"`
+}
+
+// Transformation represents a single panel data transformation.
+type Transformation struct {
+	ID      string          `json:"id"`
+	Options json.RawMessage `json:"options,omitempty"`
 }
 
 // Target represents a query target within a panel. It preserves the
@@ -95,10 +102,36 @@ func (t *Target) Raw() json.RawMessage {
 	return t.raw
 }
 
-// DatasourceRef identifies a datasource by UID and type.
+// DatasourceRef identifies a datasource by UID and type. Older
+// dashboards may encode this as a plain string instead of an object.
 type DatasourceRef struct {
 	UID  string `json:"uid"`
 	Type string `json:"type"`
+}
+
+// UnmarshalJSON handles both string and object forms of a datasource
+// reference. A plain string like "Static" is stored as the UID.
+func (d *DatasourceRef) UnmarshalJSON(data []byte) error {
+	// Try as a plain string first.
+	var str string
+	if err := json.Unmarshal(data, &str); err == nil {
+		d.UID = str
+		d.Type = ""
+
+		return nil
+	}
+
+	// Fall back to object form.
+	type plain DatasourceRef
+
+	var obj plain
+	if err := json.Unmarshal(data, &obj); err != nil {
+		return fmt.Errorf("unmarshaling datasource ref: %w", err)
+	}
+
+	*d = DatasourceRef(obj)
+
+	return nil
 }
 
 // DashboardTime holds the dashboard's default time range.

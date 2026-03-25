@@ -35,8 +35,10 @@ type view interface {
 
 // Options configures the App at creation time.
 type Options struct {
-	TimeRange grafana.TimeRange
-	Refresh   time.Duration
+	TimeRange      grafana.TimeRange
+	Refresh        time.Duration
+	DashboardUID   string // if set, open this dashboard directly
+	InitialPanelID int    // if set, jump to this panel
 }
 
 // App is the root Bubble Tea model that manages a view stack.
@@ -82,17 +84,25 @@ func NewApp(client *grafana.Client, opts Options) *App {
 		showHelp:  false,
 	}
 
-	app.views = []view{newDashboardListView(client)}
+	if opts.DashboardUID != "" {
+		pv := newPanelView(client, opts.DashboardUID)
+		pv.timeRange = opts.TimeRange
+		pv.initialPanelID = opts.InitialPanelID
+		app.views = []view{newDashboardListView(client), pv}
+	} else {
+		app.views = []view{newDashboardListView(client)}
+	}
 
 	return app
 }
 
-// Init returns initial commands for window size and the first view.
+// Init returns initial commands for window size and the top view.
 func (a *App) Init() tea.Cmd {
 	cmds := []tea.Cmd{tea.WindowSize()}
 
 	if len(a.views) > 0 {
-		if cmd := a.views[0].Init(); cmd != nil {
+		top := a.views[len(a.views)-1]
+		if cmd := top.Init(); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
 	}
@@ -209,13 +219,20 @@ func (a *App) activeViewHandlesKey(_ tea.KeyMsg) bool {
 }
 
 // handlePopView pops the top view off the stack. If the stack would
-// become empty, the app quits.
+// become empty, the app quits. The newly active view is re-initialized
+// if it hasn't been loaded yet (e.g., dashboard list skipped on
+// deep-link startup).
 func (a *App) handlePopView() (tea.Model, tea.Cmd) {
 	if len(a.views) <= 1 {
 		return a, tea.Quit
 	}
 
 	a.views = a.views[:len(a.views)-1]
+
+	top := a.views[len(a.views)-1]
+	if dl, ok := top.(*dashboardListView); ok && !dl.loaded {
+		return a, dl.Init()
+	}
 
 	return a, nil
 }

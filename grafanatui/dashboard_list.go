@@ -33,6 +33,10 @@ func (d dashboardItem) Description() string {
 }
 
 func (d dashboardItem) FilterValue() string {
+	if d.result.FolderTitle != "" {
+		return fmt.Sprintf("[%s] %s", d.result.FolderTitle, d.result.Title)
+	}
+
 	return d.result.Title
 }
 
@@ -40,6 +44,7 @@ func (d dashboardItem) FilterValue() string {
 type dashboardListView struct {
 	client *grafana.Client
 	list   list.Model
+	loaded bool
 }
 
 // newDashboardListView creates a dashboard list view.
@@ -53,6 +58,7 @@ func newDashboardListView(client *grafana.Client) *dashboardListView {
 	return &dashboardListView{
 		client: client,
 		list:   listModel,
+		loaded: false,
 	}
 }
 
@@ -77,7 +83,10 @@ func (d *dashboardListView) Update(msg tea.Msg) (view, tea.Cmd) {
 }
 
 // handleDashboardsLoaded populates the list with fetched dashboards.
-func (d *dashboardListView) handleDashboardsLoaded(msg dashboardsLoadedMsg) (view, tea.Cmd) {
+func (d *dashboardListView) handleDashboardsLoaded(
+	msg dashboardsLoadedMsg,
+) (view, tea.Cmd) {
+	d.loaded = true
 	items := make([]list.Item, len(msg.dashboards))
 
 	for i, dashboard := range msg.dashboards {

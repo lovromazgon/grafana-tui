@@ -44,7 +44,7 @@ func TestQueryPanel_ProxyEndpoint(t *testing.T) {
 	}
 
 	result, err := client.QueryPanel(
-		t.Context(), panel, timeRange, 100, nil, nil,
+		t.Context(), panel, timeRange, 100, nil, nil, nil,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -102,7 +102,7 @@ func TestQueryPanel_VariableResolution(t *testing.T) {
 	timeRange := grafana.TimeRange{From: "now-1h", To: "now"}
 
 	_, err = client.QueryPanel(
-		t.Context(), panel, timeRange, 100, variables, nil,
+		t.Context(), panel, timeRange, 100, variables, nil, nil,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -131,7 +131,7 @@ func TestQueryPanel_EmptyTargets(t *testing.T) {
 
 	result, err := client.QueryPanel(
 		t.Context(), panel,
-		grafana.TimeRange{From: "now-1h", To: "now"}, 100, nil, nil,
+		grafana.TimeRange{From: "now-1h", To: "now"}, 100, nil, nil, nil,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

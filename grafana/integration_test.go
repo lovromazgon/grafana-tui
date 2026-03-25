@@ -384,7 +384,7 @@ func TestIntegration(t *testing.T) {
 
 		timeRange := grafana.TimeRange{From: "now-1h", To: "now"}
 		result, err := client.QueryPanel(
-			t.Context(), panels[0], timeRange, 100, nil, nil,
+			t.Context(), panels[0], timeRange, 100, nil, nil, panels,
 		)
 		require.NoError(t, err)
 		require.NotEmpty(t, result.Results)
@@ -432,7 +432,7 @@ func TestIntegration(t *testing.T) {
 
 		for _, panel := range panels {
 			result, queryErr := client.QueryPanel(
-				t.Context(), panel, timeRange, 80, nil, nil,
+				t.Context(), panel, timeRange, 80, nil, nil, panels,
 			)
 			require.NoError(t, queryErr,
 				"panel %q query failed", panel.Title)

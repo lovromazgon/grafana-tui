@@ -268,6 +268,14 @@ func (v *variablePickerView) renderVariables(_ int) string {
 		titleStyle.Render("  Variables (enter: edit, esc: apply)"),
 	}
 
+	if len(v.variables) == 0 {
+		lines = append(lines, "")
+		lines = append(lines,
+			dimStyle.Render("  No variables defined for this dashboard"))
+
+		return strings.Join(lines, "\n")
+	}
+
 	end := min(v.varOffset+v.height, len(v.variables))
 
 	for i := v.varOffset; i < end; i++ {

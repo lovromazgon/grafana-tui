@@ -18,10 +18,17 @@ type tableRenderer struct{}
 
 func (r *tableRenderer) Render(
 	result *grafana.QueryResult,
-	_ grafana.Panel,
+	panel grafana.Panel,
 	width, height int,
-	_ map[string]bool,
+	hiddenSeries map[string]bool,
 ) string {
+	// If the display mode is gauge-like, delegate to the gauge
+	// renderer instead of showing a plain table.
+	if isGaugeDisplayMode(panel.FieldConfig) {
+		gauge := &gaugeRenderer{}
+		return gauge.Render(result, panel, width, height, hiddenSeries)
+	}
+
 	headers, rows := collectTableData(result)
 	if len(headers) == 0 {
 		return lipgloss.Place(

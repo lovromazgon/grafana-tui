@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/url"
 	"regexp"
 	"strconv"
@@ -64,15 +65,22 @@ type DataFrameData struct {
 }
 
 // QueryPanel executes all targets for a panel and returns the
-// results. Uses the datasource proxy endpoint for Prometheus queries.
-func (c *Client) QueryPanel(
+// results. For Prometheus targets (those with an expr field), it uses
+// the datasource proxy endpoint. For all other datasources, it uses
+// the generic /api/ds/query endpoint. The allPanels slice is used to
+// resolve "-- Dashboard --" datasource references that point to
+// another panel's query.
+func (c *Client) QueryPanel( //nolint:funlen,cyclop // orchestration function
 	ctx context.Context,
 	panel Panel,
 	timeRange TimeRange,
 	maxDataPoints int,
 	variables []TemplateVariable,
 	variableOverrides map[string]string,
+	allPanels []Panel,
 ) (*QueryResult, error) {
+	panel = resolveDashboardDatasource(panel, allPanels)
+
 	if len(panel.Targets) == 0 {
 		return &QueryResult{Results: map[string]QueryResultData{}}, nil
 	}
@@ -84,16 +92,11 @@ func (c *Client) QueryPanel(
 
 	results := make(map[string]QueryResultData, len(panel.Targets))
 
+	// Collect non-Prometheus targets for batch query via /api/ds/query.
+	var genericTargets []json.RawMessage
+
 	for _, target := range panel.Targets {
 		fields := extractTargetFields(target)
-		if fields.Expr == "" {
-			continue
-		}
-
-		expr := ResolveVariables(fields.Expr, variables, variableOverrides)
-		expr = resolveBuiltinVariables(expr, intervalMs)
-
-		slog.Debug("grafana resolved expr", "panel", panel.Title, "target", target.RefID, "expr", expr)
 
 		dsRef := target.Datasource
 		if dsRef == nil {
@@ -101,19 +104,257 @@ func (c *Client) QueryPanel(
 		}
 
 		if dsRef == nil {
+			slog.Debug("skipping target with no datasource",
+				"panel", panel.Title, "target", target.RefID)
+
 			continue
 		}
 
-		promResult, err := c.queryPrometheus(ctx, dsRef.UID, expr, start, end, stepSec)
-		if err != nil {
-			return nil, fmt.Errorf("querying %q: %w", target.RefID, err)
+		// Resolve datasource names or ${DS_*} variable UIDs.
+		if dsRef.Type == "" || isDatasourceVariable(dsRef.UID) {
+			dsRef = &DatasourceRef{
+				UID:  c.ResolveDatasourceUID(ctx, dsRef.UID, dsRef.Type),
+				Type: dsRef.Type,
+			}
 		}
 
-		frames := prometheusToDataFrames(promResult, target.RefID, fields.LegendFormat)
-		results[target.RefID] = QueryResultData{Frames: frames}
+		// Inline frame data: use it directly without querying.
+		if frame, ok := extractInlineFrame(target, dsRef); ok {
+			results[target.RefID] = QueryResultData{
+				Frames: []DataFrame{frame},
+			}
+
+			continue
+		}
+
+		// Prometheus targets: use the proxy endpoint.
+		if fields.Expr != "" {
+			expr := ResolveVariables(fields.Expr, variables, variableOverrides)
+			expr = resolveBuiltinVariables(expr, intervalMs)
+
+			slog.Debug("grafana resolved expr", "panel", panel.Title, "target", target.RefID, "expr", expr)
+
+			promResult, err := c.queryPrometheus(ctx, dsRef.UID, dsRef.Type, expr, start, end, stepSec)
+			if err != nil {
+				return nil, fmt.Errorf("querying %q: %w", target.RefID, err)
+			}
+
+			frames := prometheusToDataFrames(promResult, target.RefID, fields.LegendFormat)
+			results[target.RefID] = QueryResultData{Frames: frames}
+
+			continue
+		}
+
+		// Non-Prometheus targets: build a query for /api/ds/query.
+		queryJSON := buildDSQueryTarget(target, dsRef, intervalMs, maxDataPoints)
+		genericTargets = append(genericTargets, queryJSON)
 	}
 
-	return &QueryResult{Results: results}, nil
+	// Execute generic targets in a single batch request.
+	if len(genericTargets) > 0 {
+		fromMs := resolveTimeToMs(timeRange.From)
+		toMs := resolveTimeToMs(timeRange.To)
+
+		dsResult, err := c.queryDatasource(ctx, genericTargets, fromMs, toMs)
+		if err != nil {
+			return nil, fmt.Errorf("querying datasource: %w", err)
+		}
+
+		maps.Copy(results, dsResult.Results)
+	}
+
+	queryResult := &QueryResult{Results: results}
+	ApplyTransformations(queryResult, panel.Transformations)
+
+	return queryResult, nil
+}
+
+// inlineFrameFields represents the "frame" field in a target that
+// contains inline data from the Static datasource.
+type inlineFrameFields struct {
+	Fields []inlineField `json:"fields"`
+}
+
+type inlineField struct {
+	Name   string          `json:"name"`
+	Type   string          `json:"type"`
+	Values json.RawMessage `json:"values"`
+}
+
+// extractInlineFrame checks if a target contains inline frame data
+// (used by the Static datasource plugin). Returns the constructed
+// DataFrame and true if found.
+func extractInlineFrame(
+	target Target, dsRef *DatasourceRef,
+) (DataFrame, bool) {
+	raw := target.Raw()
+	if raw == nil {
+		return DataFrame{}, false //nolint:exhaustruct // zero value is intentional
+	}
+
+	var wrapper struct {
+		Frame *inlineFrameFields `json:"frame"`
+	}
+
+	if err := json.Unmarshal(raw, &wrapper); err != nil || wrapper.Frame == nil {
+		return DataFrame{}, false //nolint:exhaustruct // zero value is intentional
+	}
+
+	if len(wrapper.Frame.Fields) == 0 {
+		return DataFrame{}, false //nolint:exhaustruct // zero value is intentional
+	}
+
+	slog.Debug("using inline frame data",
+		"target", target.RefID,
+		"datasource", dsRef.UID,
+		"fields", len(wrapper.Frame.Fields))
+
+	schemaFields := make([]DataFrameField, len(wrapper.Frame.Fields))
+	dataValues := make([]json.RawMessage, len(wrapper.Frame.Fields))
+
+	for i, f := range wrapper.Frame.Fields {
+		schemaFields[i] = DataFrameField{ //nolint:exhaustruct // inline data has no labels/config
+			Name: f.Name,
+			Type: f.Type,
+		}
+		dataValues[i] = f.Values
+	}
+
+	frame := DataFrame{
+		Schema: DataFrameSchema{ //nolint:exhaustruct // inline data has no meta
+			RefID:  target.RefID,
+			Fields: schemaFields,
+		},
+		Data: DataFrameData{Values: dataValues},
+	}
+
+	return frame, true
+}
+
+// isDatasourceVariable checks if a UID is a Grafana provisioning
+// variable like ${DS_PROMETHEUS}.
+func isDatasourceVariable(uid string) bool {
+	return strings.HasPrefix(uid, "${")
+}
+
+// resolveDashboardDatasource replaces targets that reference the
+// special "-- Dashboard --" datasource with the targets from the
+// referenced panel.
+func resolveDashboardDatasource(panel Panel, allPanels []Panel) Panel {
+	if len(panel.Targets) == 0 || len(allPanels) == 0 {
+		return panel
+	}
+
+	dsRef := panel.Targets[0].Datasource
+	if dsRef == nil {
+		dsRef = panel.Datasource
+	}
+
+	if dsRef == nil || dsRef.UID != "-- Dashboard --" {
+		return panel
+	}
+
+	// Extract the referenced panelId from the first target.
+	refPanelID := extractPanelID(panel.Targets[0])
+	if refPanelID == 0 {
+		slog.Debug("-- Dashboard -- target missing panelId",
+			"panel", panel.Title)
+		return panel
+	}
+
+	// Find the referenced panel and use its targets/datasource.
+	for _, p := range allPanels {
+		if p.ID == refPanelID {
+			slog.Debug("resolved -- Dashboard -- reference",
+				"panel", panel.Title, "refPanelId", refPanelID,
+				"refPanel", p.Title)
+
+			panel.Targets = p.Targets
+			panel.Datasource = p.Datasource
+
+			return panel
+		}
+	}
+
+	slog.Debug("-- Dashboard -- referenced panel not found",
+		"panel", panel.Title, "refPanelId", refPanelID)
+
+	return panel
+}
+
+// extractPanelID pulls the panelId field from a target's raw JSON.
+func extractPanelID(target Target) int {
+	raw := target.Raw()
+	if raw == nil {
+		return 0
+	}
+
+	var fields struct {
+		PanelID int `json:"panelId"`
+	}
+
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return 0
+	}
+
+	return fields.PanelID
+}
+
+// buildDSQueryTarget builds a query JSON object for /api/ds/query
+// from a target, merging in the datasource reference and interval.
+func buildDSQueryTarget(
+	target Target,
+	dsRef *DatasourceRef,
+	intervalMs, maxDataPoints int,
+) json.RawMessage {
+	// Start with the raw target JSON and merge in required fields.
+	var targetMap map[string]any
+
+	raw := target.Raw()
+	if raw == nil {
+		targetMap = make(map[string]any)
+	} else if err := json.Unmarshal(raw, &targetMap); err != nil {
+		targetMap = make(map[string]any)
+	}
+
+	targetMap["datasource"] = dsRef
+	targetMap["intervalMs"] = intervalMs
+	targetMap["maxDataPoints"] = maxDataPoints
+
+	data, err := json.Marshal(targetMap)
+	if err != nil {
+		return json.RawMessage(`{}`)
+	}
+
+	return data
+}
+
+// dsQueryRequest is the request body for POST /api/ds/query.
+type dsQueryRequest struct {
+	Queries []json.RawMessage `json:"queries"`
+	From    string            `json:"from"`
+	To      string            `json:"to"`
+}
+
+// queryDatasource queries via the generic /api/ds/query endpoint,
+// which supports all datasource types.
+func (c *Client) queryDatasource(
+	ctx context.Context,
+	queries []json.RawMessage,
+	fromMs, toMs int64,
+) (*QueryResult, error) {
+	reqBody := dsQueryRequest{
+		Queries: queries,
+		From:    strconv.FormatInt(fromMs, 10),
+		To:      strconv.FormatInt(toMs, 10),
+	}
+
+	var result QueryResult
+	if err := c.doPostJSON(ctx, "/api/ds/query", reqBody, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
 }
 
 // targetFields holds the fields we extract from a target's raw JSON.
@@ -154,10 +395,11 @@ type promSeriesData struct {
 	Values [][]any           `json:"values"`
 }
 
-// queryPrometheus queries via the datasource proxy endpoint.
+// queryPrometheus queries via the datasource proxy endpoint. For
+// Loki datasources, the API path includes a /loki prefix.
 func (c *Client) queryPrometheus(
 	ctx context.Context,
-	dsUID string,
+	dsUID, dsType string,
 	expr string,
 	start, end time.Time,
 	stepSec int,
@@ -169,9 +411,14 @@ func (c *Client) queryPrometheus(
 		"step":  {strconv.Itoa(stepSec)},
 	}
 
+	apiPrefix := "/api/v1/query_range"
+	if dsType == "loki" {
+		apiPrefix = "/loki/api/v1/query_range"
+	}
+
 	path := fmt.Sprintf(
-		"/api/datasources/proxy/uid/%s/api/v1/query_range?%s",
-		url.PathEscape(dsUID), params.Encode(),
+		"/api/datasources/proxy/uid/%s%s?%s",
+		url.PathEscape(dsUID), apiPrefix, params.Encode(),
 	)
 
 	var result promQueryResult
@@ -302,6 +549,7 @@ func resolveBuiltinVariables(expr string, intervalMs int) string {
 	expr = strings.ReplaceAll(expr, "$__rate_interval", rateInterval)
 	expr = strings.ReplaceAll(expr, "$__interval_ms", strconv.Itoa(intervalMs))
 	expr = strings.ReplaceAll(expr, "$__interval", interval)
+	expr = strings.ReplaceAll(expr, "$__auto", interval)
 	expr = strings.ReplaceAll(expr, "$__all", ".*")
 	expr = autoIntervalPattern.ReplaceAllString(expr, interval)
 
