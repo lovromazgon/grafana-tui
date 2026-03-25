@@ -29,6 +29,22 @@ Or download the binary manually from the [latest release](https://github.com/lov
 grafana-tui --url URL [flags]
 ```
 
+### Deep linking
+
+The `--url` flag accepts a full Grafana dashboard or panel URL.
+This opens the dashboard (and optionally a specific panel) directly,
+skipping the dashboard list.
+
+```sh
+# Open a specific dashboard
+grafana-tui --url https://grafana.example.com/d/abc123
+
+# Open a specific panel within a dashboard
+grafana-tui --url https://grafana.example.com/d/abc123?viewPanel=22
+```
+
+Press `esc` to navigate back to the dashboard list.
+
 ### Authentication
 
 Authenticate with a service account token (recommended) or basic auth
