@@ -232,7 +232,8 @@ var skipPanelTypes = map[string]bool{ //nolint:gochecknoglobals // read-only set
 	"text":      true,
 	"dashlist":  true,
 	"alertlist": true,
-	"news":      true,
+	"news":               true,
+	"innius-video-panel": true,
 }
 
 // FlattenPanels returns all renderable panels, expanding row panels
