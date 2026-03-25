@@ -8,6 +8,8 @@ Browse Grafana dashboards in the terminal.
 Connect to a remote Grafana instance and explore dashboards, panels, and
 time series data without leaving the command line.
 
+![demo](https://github.com/user-attachments/assets/8128fb4d-283f-49c5-bf39-1276eaeccf37)
+
 ## Installation
 
 Install using homebrew:
