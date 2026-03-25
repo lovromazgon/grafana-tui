@@ -228,10 +228,10 @@ func (c *Client) GetDashboard(
 // skipPanelTypes lists panel types that are not useful in terminal
 // mode and should be excluded from navigation.
 var skipPanelTypes = map[string]bool{ //nolint:gochecknoglobals // read-only set
-	"row":       true,
-	"text":      true,
-	"dashlist":  true,
-	"alertlist": true,
+	"row":                true,
+	"text":               true,
+	"dashlist":           true,
+	"alertlist":          true,
 	"news":               true,
 	"innius-video-panel": true,
 }
