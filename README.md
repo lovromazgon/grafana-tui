@@ -86,9 +86,10 @@ grafana-tui --url https://grafana.example.com --username admin --password secret
 
 | Key   | Action                  |
 |-------|-------------------------|
-| `g`   | Fetch latest data       |
+| `r`   | Fetch latest data       |
 | `t`   | Change time range       |
 | `v`   | Change template variables |
 | `f`   | Filter series           |
 | `j/k` | Scroll down/up          |
-| `q`   | Back / quit             |
+| `q`   | Quit                    |
+| `Esc` | Back                    |
