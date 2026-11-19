@@ -8,6 +8,9 @@ Browse Grafana dashboards in the terminal.
 Connect to a remote Grafana instance and explore dashboards, panels, and
 time series data without leaving the command line.
 
+> [!NOTE]
+> Check out https://github.com/gengwg/g5a, which builds on top of grafana-tui and adds even more features.
+
 ![demo](https://github.com/user-attachments/assets/8128fb4d-283f-49c5-bf39-1276eaeccf37)
 
 ## Installation
