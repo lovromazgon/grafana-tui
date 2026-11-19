@@ -2,7 +2,6 @@
 
 [![License](https://img.shields.io/github/license/lovromazgon/grafana-tui)](https://github.com/lovromazgon/grafana-tui/blob/main/LICENSE)
 [![Test](https://github.com/lovromazgon/grafana-tui/actions/workflows/test.yml/badge.svg)](https://github.com/lovromazgon/grafana-tui/actions/workflows/test.yml)
-[![Go Report Card](https://goreportcard.com/badge/github.com/lovromazgon/grafana-tui)](https://goreportcard.com/report/github.com/lovromazgon/grafana-tui)
 
 Browse Grafana dashboards in the terminal.
 Connect to a remote Grafana instance and explore dashboards, panels, and
